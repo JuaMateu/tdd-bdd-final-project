@@ -27,7 +27,7 @@ import os
 import logging
 import unittest
 from decimal import Decimal
-from service.models import Product, Category, db
+from service.models import Product, Category, db, DataValidationError
 from service import app
 from tests.factories import ProductFactory
 
@@ -147,6 +147,17 @@ class TestProductModel(unittest.TestCase):
         # Assert that the fetched product has the updated description.
         self.assertEqual(products[0].description, "testing")
 
+    def test_update_product_with_no_id(self):
+        """It should not update a Product with no ID"""
+        product = ProductFactory()
+        product.id = None  # Ensure the product has no ID
+        product.description = "Invalid update"
+
+        with self.assertRaises(DataValidationError) as context:
+            product.update()
+
+        self.assertEqual(str(context.exception), "Update called with empty ID field")
+
     def test_delete_a_product(self):
         """It should Delete a Product"""
         product = ProductFactory()
@@ -159,6 +170,74 @@ class TestProductModel(unittest.TestCase):
         product.delete()
 
         self.assertEqual(len(Product.all()), 0)
+
+    def test_deserialize_invalid_category(self):
+        """It should raise an error when category is invalid"""
+        product = Product()
+        # Pass invalid data where "category" is not a valid enum value
+        invalid_data = {
+            "name": "Test Product",
+            "description": "Test Description",
+            "price": "19.99",
+            "available": True,
+            "category": "INVALID_CATEGORY"  # Invalid category
+        }
+
+        with self.assertRaises(DataValidationError) as context:
+            product.deserialize(invalid_data)
+
+        # Verify the error message contains "Invalid attribute"
+        self.assertTrue("Invalid attribute" in str(context.exception))
+
+    def test_deserialize_invalid_available_type(self):
+        """It should raise an error when available is not a boolean"""
+        product = Product()
+        # Pass invalid data where "available" is not a boolean (e.g., a string)
+        invalid_data = {
+            "name": "Test Product",
+            "description": "Test Description",
+            "price": "19.99",
+            "available": "yes",  # Invalid type (should be boolean)
+            "category": "ELECTRONICS"
+        }
+
+        with self.assertRaises(DataValidationError) as context:
+            product.deserialize(invalid_data)
+
+        # Verify the error message
+        self.assertEqual(
+            str(context.exception),
+            "Invalid type for boolean [available]: <class 'str'>"
+        )
+
+    def test_deserialize_missing_key(self):
+        """It should raise an error when a required key is missing"""
+        product = Product()
+        # Pass data with the 'name' key missing
+        invalid_data = {
+            "description": "Test Description",
+            "price": "19.99",
+            "available": True,
+            "category": "ELECTRONICS"
+        }
+
+        with self.assertRaises(DataValidationError) as context:
+            product.deserialize(invalid_data)
+
+        # Verify the error message contains "Invalid product: missing name"
+        self.assertEqual(str(context.exception), "Invalid product: missing name")
+
+    def test_deserialize_invalid_type(self):
+        """It should raise an error when data is not a dictionary"""
+        product = Product()
+        # Pass an invalid data type (e.g., a string instead of a dictionary)
+        invalid_data = "this is not a dictionary"
+
+        with self.assertRaises(DataValidationError) as context:
+            product.deserialize(invalid_data)
+
+        # Verify the error message contains "Invalid product: body of request contained bad or no data"
+        self.assertTrue("Invalid product: body of request contained bad or no data" in str(context.exception))
 
     def test_list_all_products(self):
         """It should List all Products in the database"""
